@@ -1,0 +1,124 @@
+#include <SoftwareSerial.h>
+#include <ESP8266WiFi.h>
+#include <FirebaseESP8266.h>
+#include <WiFiUdp.h>
+
+// WiFi Credentials
+#define WIFI_SSID "Galaxy"
+#define WIFI_PASSWORD "aneesh2468"
+
+// Firebase Credentials
+#define API_KEY "AIzaSyBmssbfuDt-yTuBeF3krKQWDKtv3KS_eL0"
+#define DATABASE_URL "https://eco-quality-checker-default-rtdb.firebaseio.com/" // e.g., https://your-database.firebaseio.com/
+#define USER_EMAIL "saimanoj.m23@iiits.in"
+#define USER_PASSWORD "123456"
+
+// SoftwareSerial Pins
+#define RX_PIN D2  // NodeMCU RX (connect to Arduino TX)
+#define TX_PIN D3  // NodeMCU TX (connect to Arduino RX)
+
+// Firebase objects
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
+
+// Variables to store received data
+float tdsValue = 0.0;
+float turbidityValue = 0.0;
+float coConcentration = 0.0;
+float pm25Concentration = 0.0;
+
+// Timer to control data sending frequency
+unsigned long sendDataPrevMillis = 0;
+
+// SoftwareSerial object for communication with Arduino
+SoftwareSerial arduinoSerial(RX_PIN, TX_PIN);
+
+void setup() {
+  // Initialize Serial for debugging
+  Serial.begin(115200);
+
+  // Initialize SoftwareSerial for communication with Arduino
+  arduinoSerial.begin(9600);
+
+  // Initialize WiFi
+  Serial.print("Connecting to Wi-Fi");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(300);
+  }
+  Serial.println("\nConnected to Wi-Fi");
+
+  // Initialize Firebase
+  config.api_key = API_KEY;
+  auth.user.email = USER_EMAIL;
+  auth.user.password = USER_PASSWORD;
+  config.database_url = DATABASE_URL;
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+
+  Serial.println("NodeMCU ready to receive data and send to Firebase");
+}
+
+void loop() {
+  // Check if enough data is available from Arduino
+  if (arduinoSerial.available() >= sizeof(float) * 4) {
+    // Read sensor values from Arduino
+    arduinoSerial.readBytes((char *)&tdsValue, sizeof(tdsValue));
+    arduinoSerial.readBytes((char *)&turbidityValue, sizeof(turbidityValue));
+    arduinoSerial.readBytes((char *)&coConcentration, sizeof(coConcentration));
+    arduinoSerial.readBytes((char *)&pm25Concentration, sizeof(pm25Concentration));
+
+    // Print received values to Serial Monitor
+    Serial.print("TDS: ");
+    Serial.print(tdsValue, 2);
+    Serial.println(" ppm");
+
+    Serial.print("Turbidity: ");
+    Serial.print(turbidityValue, 2);
+    Serial.println(" NTU");
+
+    Serial.print("CO: ");
+    Serial.print(coConcentration, 2);
+    Serial.println(" ppm");
+
+    Serial.print("PM2.5: ");
+    Serial.print(pm25Concentration, 2);
+    Serial.println(" µg/m³");
+
+    Serial.println("--------------------");
+
+    // Send data to Firebase
+    if (Firebase.ready() && (millis() - sendDataPrevMillis > 2000 || sendDataPrevMillis == 0)) {
+      sendDataPrevMillis = millis();
+
+      // Upload sensor values to Firebase
+      if (Firebase.setFloat(fbdo, "/Sensors/TDS", tdsValue)) {
+        Serial.println("TDS value sent to Firebase");
+      } else {
+        Serial.println(fbdo.errorReason());
+      }
+
+      if (Firebase.setFloat(fbdo, "/Sensors/Turbidity", turbidityValue)) {
+        Serial.println("Turbidity value sent to Firebase");
+      } else {
+        Serial.println(fbdo.errorReason());
+      }
+
+      if (Firebase.setFloat(fbdo, "/Sensors/CO", coConcentration)) {
+        Serial.println("CO value sent to Firebase");
+      } else {
+        Serial.println(fbdo.errorReason());
+      }
+
+      if (Firebase.setFloat(fbdo, "/Sensors/PM25", pm25Concentration)) {
+        Serial.println("PM2.5 value sent to Firebase");
+      } else {
+        Serial.println(fbdo.errorReason());
+      }
+    }
+  }
+
+  delay(500);  // Small delay for loop stability
+}
